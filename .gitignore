@@ -91,3 +91,7 @@ model2_behavior/logs/
 model2_behavior/outputs/
 model2_behavior/venv/
 outputs/
+
+# Sample footage supplied by the supervisor for local validation. NEVER committed:
+# it may contain real plates and faces.
+model2_behavior/samples/

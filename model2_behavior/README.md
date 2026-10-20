@@ -366,6 +366,66 @@ project-convention gate that catches contract breakage without needing footage.
 
 ---
 
+## Local check viewer
+
+A browser page for watching a run **live** while it happens — most usefully, to
+judge track-id stability on new footage *before* authoring any lane geometry.
+
+```powershell
+# Tracking-only (no geometry needed):
+.\yolo_env\Scripts\python.exe -m model2_behavior.scripts.serve_viewer `
+    --source model2_behavior\samples\clip01.mp4 --mode tracking-only
+
+# Full rules (requires lane geometry in rois.lanes):
+.\yolo_env\Scripts\python.exe -m model2_behavior.scripts.serve_viewer `
+    --source model2_behavior\samples\clip01.mp4 --mode full --loop
+```
+
+Then open **http://127.0.0.1:8765/** (`--port` changes it; `--host` defaults to
+loopback). Ctrl+C stops the server and the pipeline thread cleanly.
+
+### What the page shows
+
+- **Live annotated video** — the same `cv2`-drawn boxes, ids, and lane geometry the
+  run itself produces, streamed as MJPEG.
+- **Stats strip** — recent FPS, frame index, active tracks, distinct tracks, run mode.
+- **Events table** — `incident_type`, `severity`, `track_ids`, `timestamp`, and
+  `confidence`, with an explicit note that **confidence is detection confidence,
+  not incident probability**.
+
+### Endpoints
+
+| Route | Returns |
+|---|---|
+| `GET /` | The one self-contained HTML page (inline CSS/JS) |
+| `GET /stream` | MJPEG (`multipart/x-mixed-replace`) of annotated frames, drawn with plain `cv2` |
+| `GET /events` | JSON of events so far; the page polls this every 1 s |
+| `GET /stats` | JSON of running stats |
+
+### Design constraints (deliberate)
+
+- **Standard library only.** `http.server.ThreadingHTTPServer`; no new dependency.
+- **Fully offline.** The page makes **no external requests** — no CDN, no fonts, no
+  remote scripts or images. It works with the network disabled.
+- **Loopback only.** Binds `127.0.0.1` by default. `--host` exists but warns loudly
+  on a non-loopback address, because the server has **no authentication** and
+  exposes live frames. Never expose it beyond the machine.
+- **No path traversal.** The server serves only the page and JSON; it never serves
+  files from disk, so nothing outside the run's output directory can be reached.
+- **Full mode refuses cleanly.** With `rois.lanes` empty, full mode cannot build
+  the rules that need geometry. It reports the reason *in the page* and refuses,
+  rather than crashing or silently running with the rules disabled. Use
+  `--mode tracking-only` to validate the tracker first.
+- **No artifacts.** The viewer keeps events and frames in memory; it does not write
+  snapshots or video, so a review session leaves nothing behind.
+
+> **Privacy — local use only.** Streamed frames may show licence plates and faces.
+> Keep the viewer on loopback, do not screen-share it outside the team, and do not
+> commit recorded frames. Sample footage lives in `model2_behavior/samples/`, which
+> is **git-ignored** and must never be committed.
+
+---
+
 ## Output contract
 
 Every run writes to `outputs/run_<UTC timestamp>/`:
@@ -519,7 +579,7 @@ column existed still evaluates.
 $env:YOLO_OFFLINE="1"; .\yolo_env\Scripts\python.exe -m pytest
 ```
 
-**346 tests**, no GPU, no footage, no network. They cover geometry parsing,
+**369 tests**, no GPU, no footage, no network. They cover geometry parsing,
 load-time geometry validation (point count, self-intersection, in-frame,
 zero-length direction, overlapping lanes and their deterministic tie-break),
 multi-lane containment and rescaling, speed normalization, all four rules on
@@ -531,8 +591,10 @@ and never to wall-clock), tracking-only mode, the frame-time percentile and trac
 lifetime statistics, the event contract, the Model 1 regression comparison, and
 the evaluation harness's matcher (including one-to-one duplicate handling,
 out-of-window false positives, the negative-duration false-alarm denominator, and
-`--split`), and the static-camera check (still scene quiet, synthetic panning
-scene flagged, then the same flag observed end to end in `run_summary.json`).
+`--split`), the static-camera check (still scene quiet, synthetic panning
+scene flagged, then the same flag observed end to end in `run_summary.json`), and
+the local check viewer (loopback bind, valid JSON endpoints, a real JPEG MJPEG
+part, and a clean refusal when full mode has no geometry).
 Rules are tested with **synthetic geometry and lane directions supplied by the
 tests** — nothing depends on real data being present.
 
@@ -581,7 +643,8 @@ model2_behavior/
                   gate1_report, gate2_report, gate3_report,
                   define_camera_geometry, mock_test_contract,
                   annotation_offline_proof, run_pipeline,
-                  evaluate_events, model1_regression_check
+                  evaluate_events, model1_regression_check, serve_viewer
+  samples/        supervisor-supplied footage (git-ignored, never committed)
   tests/          pytest suite
   tests/fixtures/ tracked Model 1 regression baseline
 ```
