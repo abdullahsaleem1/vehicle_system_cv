@@ -1,0 +1,58 @@
+=== RUN STARTED (fresh) at 2026-08-21 14:26:32 ===
+[2026-08-21 14:26:32] Base model     : yolov8n.pt
+[2026-08-21 14:26:32] Dataset config : E:\projects\vehicle_system_cv\plate_detection\datasets\license_plate_recognition_v4\data.yaml
+[2026-08-21 14:26:32] Run folder     : E:\projects\vehicle_system_cv\plate_detection\weights\plate_detector (reused, no auto-increment)
+[2026-08-21 14:26:32] Settings       : epochs=20 imgsz=640 device=0 batch=-1(AutoBatch) cache=True save_period=1
+=== RUN RESUMED (from last.pt, 2/20 epochs already done) at 2026-08-21 15:06:16 ===
+[2026-08-21 15:06:16] Dataset config : E:\projects\vehicle_system_cv\plate_detection\datasets\license_plate_recognition_v4\data.yaml
+[2026-08-21 15:06:16] Run folder     : E:\projects\vehicle_system_cv\plate_detection\weights\plate_detector (reused, no auto-increment)
+[2026-08-21 15:15:49] CRASHED: RuntimeError: DataLoader worker (pid(s) 11244, 12912) exited unexpectedly
+[2026-08-21 15:15:59]     File "E:\projects\vehicle_system_cv\yolo_env\Lib\site-packages\torch\utils\data\dataloader.py", line 1410, in _get_data
+[2026-08-21 15:15:59]       success, data = self._try_get_data()
+[2026-08-21 15:15:59]                       ^^^^^^^^^^^^^^^^^^^^
+[2026-08-21 15:15:59]     File "E:\projects\vehicle_system_cv\yolo_env\Lib\site-packages\torch\utils\data\dataloader.py", line 1264, in _try_get_data
+[2026-08-21 15:15:59]       raise RuntimeError(
+[2026-08-21 15:15:59]   RuntimeError: DataLoader worker (pid(s) 11244, 12912) exited unexpectedly
+[2026-08-21 15:15:59] Progress through the last completed epoch is safe on disk; fix the issue and re-run to resume.
+=== RUN CRASHED at 2026-08-21 15:15:59 ===
+=== RUN RESUMED (from last.pt, 2/20 epochs already done) at 2026-08-22 03:10:53 ===
+[2026-08-22 03:10:53] Dataset config : E:\projects\vehicle_system_cv\plate_detection\datasets\license_plate_recognition_v4\data.yaml
+[2026-08-22 03:10:53] Run folder     : E:\projects\vehicle_system_cv\plate_detection\weights\plate_detector (reused, no auto-increment)
+[2026-08-22 03:21:12] Epoch 3/20 complete (15%) | box_loss=1.2471 cls_loss=0.7409 dfl_loss=1.2436 | mAP50=0.9472 | elapsed this run 0:10:18
+[2026-08-22 03:21:12] Checkpoint saved: last.pt + epoch2.pt
+[2026-08-22 03:24:16] Epoch 4/20 complete (20%) | box_loss=1.2036 cls_loss=0.6855 dfl_loss=1.2226 | mAP50=0.9582 | elapsed this run 0:13:23
+[2026-08-22 03:24:16] Checkpoint saved: last.pt + epoch3.pt
+[2026-08-22 03:26:59] Epoch 5/20 complete (25%) | box_loss=1.1774 cls_loss=0.6410 dfl_loss=1.2022 | mAP50=0.9588 | elapsed this run 0:16:06
+[2026-08-22 03:26:59] Checkpoint saved: last.pt + epoch4.pt
+[2026-08-22 03:29:55] Epoch 6/20 complete (30%) | box_loss=1.1559 cls_loss=0.6098 dfl_loss=1.1923 | mAP50=0.9709 | elapsed this run 0:19:02
+[2026-08-22 03:29:55] Checkpoint saved: last.pt + epoch5.pt
+[2026-08-22 03:32:33] Epoch 7/20 complete (35%) | box_loss=1.1351 cls_loss=0.5926 dfl_loss=1.1824 | mAP50=0.9727 | elapsed this run 0:21:39
+[2026-08-22 03:32:33] Checkpoint saved: last.pt + epoch6.pt
+[2026-08-22 03:35:09] Epoch 8/20 complete (40%) | box_loss=1.1176 cls_loss=0.5750 dfl_loss=1.1717 | mAP50=0.9657 | elapsed this run 0:24:16
+[2026-08-22 03:35:09] Checkpoint saved: last.pt + epoch7.pt
+[2026-08-22 03:37:46] Epoch 9/20 complete (45%) | box_loss=1.1048 cls_loss=0.5553 dfl_loss=1.1646 | mAP50=0.9695 | elapsed this run 0:26:53
+[2026-08-22 03:37:46] Checkpoint saved: last.pt + epoch8.pt
+[2026-08-22 03:40:21] Epoch 10/20 complete (50%) | box_loss=1.0959 cls_loss=0.5385 dfl_loss=1.1587 | mAP50=0.9717 | elapsed this run 0:29:28
+[2026-08-22 03:40:21] Checkpoint saved: last.pt + epoch9.pt
+[2026-08-22 03:46:04] Epoch 11/20 complete (55%) | box_loss=1.0831 cls_loss=0.4674 dfl_loss=1.1798 | mAP50=0.9718 | elapsed this run 0:35:11
+[2026-08-22 03:46:04] Checkpoint saved: last.pt + epoch10.pt
+[2026-08-22 03:49:54] Epoch 12/20 complete (60%) | box_loss=1.0667 cls_loss=0.4510 dfl_loss=1.1761 | mAP50=0.9777 | elapsed this run 0:39:01
+[2026-08-22 03:49:54] Checkpoint saved: last.pt + epoch11.pt
+[2026-08-22 03:52:56] Epoch 13/20 complete (65%) | box_loss=1.0462 cls_loss=0.4355 dfl_loss=1.1680 | mAP50=0.9785 | elapsed this run 0:42:03
+[2026-08-22 03:52:56] Checkpoint saved: last.pt + epoch12.pt
+[2026-08-22 03:56:01] Epoch 14/20 complete (70%) | box_loss=1.0304 cls_loss=0.4212 dfl_loss=1.1504 | mAP50=0.9781 | elapsed this run 0:45:08
+[2026-08-22 03:56:01] Checkpoint saved: last.pt + epoch13.pt
+[2026-08-22 03:58:39] Epoch 15/20 complete (75%) | box_loss=1.0160 cls_loss=0.4083 dfl_loss=1.1446 | mAP50=0.9775 | elapsed this run 0:47:46
+[2026-08-22 03:58:39] Checkpoint saved: last.pt + epoch14.pt
+[2026-08-22 04:01:15] Epoch 16/20 complete (80%) | box_loss=1.0050 cls_loss=0.3989 dfl_loss=1.1360 | mAP50=0.9795 | elapsed this run 0:50:22
+[2026-08-22 04:01:15] Checkpoint saved: last.pt + epoch15.pt
+[2026-08-22 04:03:54] Epoch 17/20 complete (85%) | box_loss=0.9880 cls_loss=0.3861 dfl_loss=1.1265 | mAP50=0.9804 | elapsed this run 0:53:01
+[2026-08-22 04:03:54] Checkpoint saved: last.pt + epoch16.pt
+[2026-08-22 04:07:12] Epoch 18/20 complete (90%) | box_loss=0.9724 cls_loss=0.3796 dfl_loss=1.1148 | mAP50=0.9799 | elapsed this run 0:56:18
+[2026-08-22 04:07:12] Checkpoint saved: last.pt + epoch17.pt
+[2026-08-22 04:10:17] Epoch 19/20 complete (95%) | box_loss=0.9589 cls_loss=0.3658 dfl_loss=1.1099 | mAP50=0.9810 | elapsed this run 0:59:24
+[2026-08-22 04:10:17] Checkpoint saved: last.pt + epoch18.pt
+[2026-08-22 04:13:51] Epoch 20/20 complete (100%) | box_loss=0.9453 cls_loss=0.3571 dfl_loss=1.1029 | mAP50=0.9805 | elapsed this run 1:02:58
+[2026-08-22 04:13:51] Checkpoint saved: last.pt + epoch19.pt
+=== TRAINING FINISHED at 2026-08-22 04:16:44 ===
+[2026-08-22 04:16:44] Best weights saved to: E:\projects\vehicle_system_cv\plate_detection\weights\plate_detector\weights\best.pt

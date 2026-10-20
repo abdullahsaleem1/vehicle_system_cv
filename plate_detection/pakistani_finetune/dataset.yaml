@@ -1,0 +1,5 @@
+path: E:\projects\vehicle_system_cv\plate_detection\pakistani_finetune\data
+train: E:\projects\vehicle_system_cv\plate_detection\pakistani_finetune\data\images\train
+val: E:\projects\vehicle_system_cv\plate_detection\pakistani_finetune\data\images\val
+nc: 1
+names: ['License_Plate']

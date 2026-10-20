@@ -1,0 +1,68 @@
+=== FINETUNE STARTED (fresh) at 2026-08-22 06:00:44 ===
+[2026-08-22 06:00:44] Base checkpoint: E:\projects\vehicle_system_cv\plate_detection\weights\plate_detector\weights\best.pt
+[2026-08-22 06:00:44] Dataset config : E:\projects\vehicle_system_cv\plate_detection\pakistani_finetune\dataset.yaml
+[2026-08-22 06:00:44] Run folder     : E:\projects\vehicle_system_cv\plate_detection\pakistani_finetune\weights\pk_plate_finetune (reused, no auto-increment)
+[2026-08-22 06:00:44] Settings       : epochs=30 patience=10 lr0=0.001 imgsz=640 device=0 batch=-1(AutoBatch) cache=True save_period=1
+[2026-08-22 06:00:44] FINAL TRAINING CONFIG (all parameters):
+[2026-08-22 06:00:44]   task/model    : detect, fine-tune from E:\projects\vehicle_system_cv\plate_detection\weights\plate_detector\weights\best.pt
+[2026-08-22 06:00:44]   data          : E:\projects\vehicle_system_cv\plate_detection\pakistani_finetune\dataset.yaml
+[2026-08-22 06:00:44]   epochs        : 30
+[2026-08-22 06:00:44]   patience      : 10 (early stopping)
+[2026-08-22 06:00:44]   lr0           : 0.001
+[2026-08-22 06:00:44]   imgsz         : 640
+[2026-08-22 06:00:44]   batch         : -1 (AutoBatch)
+[2026-08-22 06:00:44]   device        : 0
+[2026-08-22 06:00:44]   cache         : True
+[2026-08-22 06:00:44]   save_period   : 1 (per-epoch checkpoints)
+[2026-08-22 06:00:44]   freeze        : 10 (backbone frozen - overfit safeguard for small dataset)
+[2026-08-22 06:00:44]   mosaic        : 1.0
+[2026-08-22 06:00:44]   mixup         : 0.15
+[2026-08-22 06:00:44]   degrees       : 10
+[2026-08-22 06:00:44]   translate     : 0.1
+[2026-08-22 06:00:44]   scale         : 0.3
+[2026-08-22 06:00:44]   shear         : 2.0
+[2026-08-22 06:00:44]   fliplr        : 0.5 (plate localization only; mirror is geometrically valid)
+[2026-08-22 06:00:44]   flipud        : 0.0 (off - plates are never upside-down in footage)
+[2026-08-22 06:00:44]   hsv_h         : 0.015
+[2026-08-22 06:00:44]   hsv_s         : 0.5
+[2026-08-22 06:00:44]   hsv_v         : 0.3
+[2026-08-22 06:01:20] Epoch 1/30 complete (3%) | box_loss=2.0408 cls_loss=1.3691 dfl_loss=2.0411 | mAP50=0.9950 | elapsed this run 0:00:35
+[2026-08-22 06:01:20] Checkpoint saved: last.pt + epoch0.pt
+[2026-08-22 06:01:21] Epoch 2/30 complete (6%) | box_loss=2.1572 cls_loss=1.0565 dfl_loss=2.1384 | mAP50=0.9950 | elapsed this run 0:00:37
+[2026-08-22 06:01:21] Checkpoint saved: last.pt + epoch1.pt
+[2026-08-22 06:01:22] Epoch 3/30 complete (10%) | box_loss=1.7840 cls_loss=0.9686 dfl_loss=1.7240 | mAP50=0.9836 | elapsed this run 0:00:37
+[2026-08-22 06:01:22] Checkpoint saved: last.pt + epoch2.pt
+[2026-08-22 06:01:23] Epoch 4/30 complete (13%) | box_loss=1.7654 cls_loss=0.9454 dfl_loss=1.8156 | mAP50=0.9627 | elapsed this run 0:00:38
+[2026-08-22 06:01:23] Checkpoint saved: last.pt + epoch3.pt
+[2026-08-22 06:01:24] Epoch 5/30 complete (16%) | box_loss=1.5996 cls_loss=0.8732 dfl_loss=1.5498 | mAP50=0.9889 | elapsed this run 0:00:39
+[2026-08-22 06:01:24] Checkpoint saved: last.pt + epoch4.pt
+[2026-08-22 06:01:25] Epoch 6/30 complete (20%) | box_loss=1.5073 cls_loss=0.7902 dfl_loss=1.5211 | mAP50=0.8872 | elapsed this run 0:00:40
+[2026-08-22 06:01:25] Checkpoint saved: last.pt + epoch5.pt
+[2026-08-22 06:01:25] Epoch 7/30 complete (23%) | box_loss=1.5993 cls_loss=0.8154 dfl_loss=1.6103 | mAP50=0.8800 | elapsed this run 0:00:41
+[2026-08-22 06:01:25] Checkpoint saved: last.pt + epoch6.pt
+[2026-08-22 06:01:26] Epoch 8/30 complete (26%) | box_loss=1.4783 cls_loss=0.7407 dfl_loss=1.5634 | mAP50=0.9486 | elapsed this run 0:00:42
+[2026-08-22 06:01:26] Checkpoint saved: last.pt + epoch7.pt
+[2026-08-22 06:01:27] Epoch 9/30 complete (30%) | box_loss=1.4758 cls_loss=0.8856 dfl_loss=1.4647 | mAP50=0.9635 | elapsed this run 0:00:42
+[2026-08-22 06:01:27] Checkpoint saved: last.pt + epoch8.pt
+[2026-08-22 06:01:28] Epoch 10/30 complete (33%) | box_loss=1.3755 cls_loss=0.8109 dfl_loss=1.5116 | mAP50=0.9696 | elapsed this run 0:00:44
+[2026-08-22 06:01:28] Checkpoint saved: last.pt + epoch9.pt
+[2026-08-22 06:01:29] Epoch 11/30 complete (36%) | box_loss=1.4681 cls_loss=0.7891 dfl_loss=1.5961 | mAP50=0.9950 | elapsed this run 0:00:44
+[2026-08-22 06:01:29] Checkpoint saved: last.pt + epoch10.pt
+[2026-08-22 06:01:30] Epoch 12/30 complete (40%) | box_loss=1.3521 cls_loss=0.8445 dfl_loss=1.4256 | mAP50=0.9950 | elapsed this run 0:00:45
+[2026-08-22 06:01:30] Checkpoint saved: last.pt + epoch11.pt
+[2026-08-22 06:01:31] Epoch 13/30 complete (43%) | box_loss=1.4840 cls_loss=0.8101 dfl_loss=1.3894 | mAP50=0.9950 | elapsed this run 0:00:46
+[2026-08-22 06:01:31] Checkpoint saved: last.pt + epoch12.pt
+[2026-08-22 06:01:31] Epoch 14/30 complete (46%) | box_loss=1.4652 cls_loss=0.8417 dfl_loss=1.5515 | mAP50=0.9889 | elapsed this run 0:00:47
+[2026-08-22 06:01:31] Checkpoint saved: last.pt + epoch13.pt
+[2026-08-22 06:01:32] Epoch 15/30 complete (50%) | box_loss=1.2741 cls_loss=0.7245 dfl_loss=1.3452 | mAP50=0.9950 | elapsed this run 0:00:48
+[2026-08-22 06:01:32] Checkpoint saved: last.pt + epoch14.pt
+[2026-08-22 06:01:33] Epoch 16/30 complete (53%) | box_loss=1.1614 cls_loss=0.6597 dfl_loss=1.2783 | mAP50=0.9950 | elapsed this run 0:00:49
+[2026-08-22 06:01:33] Checkpoint saved: last.pt + epoch15.pt
+[2026-08-22 06:01:34] Epoch 17/30 complete (56%) | box_loss=1.3113 cls_loss=0.6884 dfl_loss=1.3650 | mAP50=0.9950 | elapsed this run 0:00:49
+[2026-08-22 06:01:34] Checkpoint saved: last.pt + epoch16.pt
+[2026-08-22 06:01:35] Epoch 18/30 complete (60%) | box_loss=1.3662 cls_loss=0.8489 dfl_loss=1.4725 | mAP50=0.9950 | elapsed this run 0:00:51
+[2026-08-22 06:01:35] Checkpoint saved: last.pt + epoch17.pt
+[2026-08-22 06:01:37] Epoch 19/30 complete (63%) | box_loss=1.3662 cls_loss=0.8489 dfl_loss=1.4725 | mAP50=0.9486 | elapsed this run 0:00:53
+[2026-08-22 06:01:37] Checkpoint saved: last.pt + epoch17.pt
+=== FINETUNE FINISHED at 2026-08-22 06:01:40 ===
+[2026-08-22 06:01:40] Best fine-tuned weights saved to: E:\projects\vehicle_system_cv\plate_detection\pakistani_finetune\weights\pk_plate_finetune\weights\best.pt

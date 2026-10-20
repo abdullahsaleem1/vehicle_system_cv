@@ -1,0 +1,16 @@
+# Core Deep Learning & Computer Vision
+torch>=2.0.0
+torchvision>=0.15.0
+ultralytics>=8.0.0
+easyocr>=1.7.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+Pillow>=9.0.0
+PyYAML>=6.0
+
+# Web Application & API (FastAPI)
+fastapi>=0.100.0
+uvicorn>=0.20.0
+python-multipart>=0.0.6
+pydantic>=2.0.0
+requests>=2.28.0

@@ -1,0 +1,16 @@
+# Git LFS tracking rules
+#
+# Production model weights are binary blobs that change rarely. Routing them
+# through LFS keeps the git history compact while still making the repo
+# clone-and-run friendly.
+#
+# On a fresh clone run `git lfs install` once before/after cloning, otherwise
+# `best.pt` files arrive as small pointer text files instead of real weights.
+
+*.pt filter=lfs diff=lfs merge=lfs -text
+*.pth filter=lfs diff=lfs merge=lfs -text
+
+# Large binaries that we currently keep out of git entirely are listed in
+# .gitignore; the rules below are here for convenience if they are ever added.
+*.onnx filter=lfs diff=lfs merge=lfs -text
+*.engine filter=lfs diff=lfs merge=lfs -text

@@ -1,0 +1,9 @@
+[
+  {
+    "source": "conditional",
+    "action": "rejected",
+    "reasons": [
+      "gate B FAILED - no parseable annotations covering every image (dataset contains images only; guessing boxes is forbidden per spec)"
+    ]
+  }
+]

@@ -1,0 +1,31 @@
+{
+  "timestamp": "2026-08-23T04:22:40",
+  "data": "E:\\projects\\vehicle_system_cv\\plate_detection\\pakistani_finetune\\dataset.yaml",
+  "models": {
+    "base": "E:\\projects\\vehicle_system_cv\\plate_detection\\weights\\plate_detector\\weights\\best.pt",
+    "finetune_v1": "E:\\projects\\vehicle_system_cv\\plate_detection\\pakistani_finetune\\weights\\pk_plate_finetune\\weights\\best.pt",
+    "finetune_v2": "E:\\projects\\vehicle_system_cv\\plate_detection\\pakistani_finetune\\weights\\pk_plate_finetune_v2\\weights\\best.pt"
+  },
+  "metrics": {
+    "precision": {
+      "base": 0.9973528922656497,
+      "finetune_v1": 0.9165108669045018,
+      "finetune_v2": 0.8430942223570036
+    },
+    "recall": {
+      "base": 1.0,
+      "finetune_v1": 0.9149528692828537,
+      "finetune_v2": 1.0
+    },
+    "mAP50": {
+      "base": 0.995,
+      "finetune_v1": 0.9485714285714284,
+      "finetune_v2": 0.9769047619047618
+    },
+    "mAP50-95": {
+      "base": 0.4394666666666668,
+      "finetune_v1": 0.6530927849927849,
+      "finetune_v2": 0.6329738095238095
+    }
+  }
+}
