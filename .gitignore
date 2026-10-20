@@ -74,3 +74,20 @@ plate_detection/datasets/
 ocr_integration/outputs*/
 ocr_integration/outputs_cars_test/
 ocr_integration/*_results.json
+
+# ---------------------------------------------------------------------------
+# Model 2 (Tier A) behavior detector - FR-20 (pending supervisor sign-off)
+# ---------------------------------------------------------------------------
+# Downloaded weights live on local disk and are NOT redistributed via git.
+# models/MANIFEST.json IS tracked (it records the verified hash and source);
+# the weight binaries themselves are not.
+model2_behavior/models/*.pt
+model2_behavior/models/*.pth
+model2_behavior/models/*.part
+!model2_behavior/models/MANIFEST.json
+
+# Per-run logs, annotated videos, event JSON, and effective tracker configs
+model2_behavior/logs/
+model2_behavior/outputs/
+model2_behavior/venv/
+outputs/

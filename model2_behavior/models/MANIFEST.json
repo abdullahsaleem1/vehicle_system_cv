@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "component": "model2_behavior",
+  "requirement": "FR-20 (pending supervisor sign-off)",
+  "generated_utc": "2026-10-20T11:21:35Z",
+  "policy": {
+    "source": "official Ultralytics release assets only",
+    "location": "models/ (local disk)",
+    "runtime_download": "disabled (YOLO_OFFLINE=1)",
+    "loading": "absolute local path only; bare model names forbidden"
+  },
+  "weights": {
+    "yolo11m.pt": {
+      "filename": "yolo11m.pt",
+      "path": "E:\\projects\\vehicle_system_cv\\model2_behavior\\models\\yolo11m.pt",
+      "sha256": "d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95",
+      "size_bytes": 40684120,
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11m.pt",
+      "verified_utc": "2026-10-20T11:21:35Z",
+      "expected_size_bytes": 40684120,
+      "expected_sha256": null,
+      "notes": "size matches official v8.3.0 asset; container CRC verified; SHA256 not published by official release; loaded offline from local path",
+      "class_map": {
+        "2": "car",
+        "3": "motorcycle",
+        "5": "bus",
+        "7": "truck"
+      }
+    }
+  }
+}

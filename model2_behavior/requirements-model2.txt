@@ -1,0 +1,18 @@
+# Model 2 (Tier A) runtime requirements - FR-20 (pending supervisor sign-off)
+#
+# These are the packages the Model 2 behavior/incident detector needs that are NOT
+# already provided by the base Model 1 environment.
+#
+#   lap   Required by ByteTrack. ultralytics/trackers/byte_tracker.py calls
+#         linear_assignment(...) with the default use_lap=True at all three
+#         association stages, so the NumPy fallback is unreachable through the
+#         normal code path. Importing the module also calls
+#         check_requirements("lap>=0.5.12"), so it must be installed ahead of
+#         time rather than resolved at first import. A prebuilt Windows wheel
+#         exists (cp312), and the only dependency is numpy, which is present.
+#
+# NOTE: this file records what is installed. It is intentionally NOT installed
+# automatically by any script. Do not add packages to the environment without
+# listing them and getting sign-off first.
+
+lap==0.5.13

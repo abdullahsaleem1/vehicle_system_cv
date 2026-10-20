@@ -1,0 +1,169 @@
+# =============================================================================
+# Model 2, Tier A - behavior / incident detector configuration
+# FR-20 (pending supervisor sign-off)
+# =============================================================================
+#
+# UNITS POLICY
+# ------------
+# Speeds are normalized by bounding-box height and expressed in
+# BODY-LENGTHS PER SECOND (bl/s). This makes thresholds resolution- and
+# distance-invariant, which raw pixels/second cannot be.
+#
+#   normalized_speed = (pixels_per_second) / bbox_height_px
+#
+# Raw pixel values are still recorded in logs for diagnostics only.
+#
+# LIMITATION: without homography / camera calibration there is no true
+# metric (km/h) speed. Body-lengths/s is a scale-invariant proxy. Absolute
+# physical thresholds must not be inferred from these numbers.
+#
+# All durations are in SECONDS. They are converted to frame counts at runtime
+# using the measured video FPS. Do not specify frame counts in this file.
+#
+policy:
+  source: "official Ultralytics release assets only"
+  runtime_download: "disabled (YOLO_OFFLINE=1)"
+  loading: "absolute local path only; never a bare model name"
+
+# -----------------------------------------------------------------------------
+# Runtime
+# -----------------------------------------------------------------------------
+camera_id: "cam_01"
+device: 0                      # int GPU index, or "cpu"; falls back to cpu if CUDA absent
+weights_path: "models/yolo11m.pt"                     # resolved to absolute; must exist locally
+tracker_config_path: "configs/bytetrack.yaml"
+
+# -----------------------------------------------------------------------------
+# Detector
+# -----------------------------------------------------------------------------
+# conf is deliberately LOW (0.10) and >= track_low_thresh so ByteTrack's second
+# association stage can recover weak detections. Precision filtering happens in
+# the RULE LAYER via rule_layer.min_track_mean_conf.
+detector:
+  imgsz: 640
+  conf: 0.10
+  iou: 0.45
+  classes: [2, 3, 5, 7]        # car, motorcycle, bus, truck (COCO)
+  max_det: 100
+  vid_stride: 1
+
+# -----------------------------------------------------------------------------
+# Tracker parameters (applied over tracker_config_path; effective merged file
+# is written to the run output folder and passed to model.track()).
+# -----------------------------------------------------------------------------
+tracker_params:
+  tracker_type: bytetrack
+  track_high_thresh: 0.25
+  track_low_thresh: 0.10
+  new_track_thresh: 0.25
+  # DURATION, not frames. ByteTrack's native track_buffer is a frame count, which
+  # would silently change meaning if the stream FPS changed. This value is
+  # converted to frames at runtime using the measured FPS and the conversion is
+  # logged and recorded in effective_tracker.yaml.
+  track_buffer_s: 3.0
+  match_thresh: 0.80
+  fuse_score: true
+
+# -----------------------------------------------------------------------------
+# Rule layer
+# -----------------------------------------------------------------------------
+rule_layer:
+  # Precision filter: a track must reach this mean detection confidence before
+  # any rule may fire. Complement to the low detector conf above.
+  min_track_mean_conf: 0.35
+  # Track age before rules evaluate it, in seconds (fps-aware).
+  min_track_age_s: 0.5
+  # Movement below this (bl/s) counts as stationary.
+  stationary_speed_thresh: 0.05
+  log_raw_pixels: true         # keep px/s values in logs for diagnostics
+
+rules:
+  # ---------------------------------------------------------------------------
+  # 1. Stopped vehicle inside a driving-lane ROI.
+  #    REQUIRES a driving_lane ROI polygon; "full_frame" is rejected because
+  #    a stopped vehicle is only meaningful inside a designated lane.
+  #    THRESHOLD STATUS: speed_thresh_bl_s is a PLACEHOLDER, unvalidated until
+  #    the Step 8 evaluation harness reports per-rule precision/recall.
+  # ---------------------------------------------------------------------------
+  stopped_vehicle:
+    enabled: true
+    speed_thresh_bl_s: 0.05       # PLACEHOLDER, unvalidated until Step 8 evaluation
+    min_consecutive_s: 10.0       # must persist this long (production default)
+    debounce_s: 10.0              # suppress repeat events per track
+    severity: "Medium"
+    require_roi: true             # hard requirement
+
+  # ---------------------------------------------------------------------------
+  # 2. Wrong-way: displacement opposes the direction of the lane the vehicle is
+  #    currently inside. Evaluated PER LANE.
+  #    Lane direction is NOT configured here. The single source of truth is
+  #    rois.lanes[].direction, authored with scripts/define_camera_geometry.py.
+  #    INERT while no lane has a direction.
+  #    THRESHOLD STATUS: ALL thresholds are PLACEHOLDER, unvalidated until the
+  #    Step 8 evaluation harness reports per-rule precision/recall.
+  # ---------------------------------------------------------------------------
+  wrong_way:
+    enabled: true
+    angle_tolerance_deg: 45.0     # PLACEHOLDER, unvalidated until Step 8 evaluation
+    min_displacement_bl: 0.15     # PLACEHOLDER, unvalidated until Step 8 evaluation
+    min_consecutive_s: 0.8
+    debounce_s: 15.0
+    severity: "High"
+
+  # ---------------------------------------------------------------------------
+  # 3. Sudden deceleration: speed drop above threshold within a short window.
+  #    THRESHOLD STATUS: ALL thresholds are PLACEHOLDER, unvalidated until the
+  #    Step 8 evaluation harness reports per-rule precision/recall.
+  # ---------------------------------------------------------------------------
+  sudden_decel:
+    enabled: true
+    decel_thresh_bl_s2: 1.5       # PLACEHOLDER, unvalidated until Step 8 evaluation
+    window_s: 1.0                 # PLACEHOLDER, unvalidated until Step 8 evaluation
+    min_speed_before_bl_s: 0.30   # PLACEHOLDER, unvalidated until Step 8 evaluation
+    min_consecutive_s: 0.4
+    debounce_s: 10.0
+    severity: "Medium"
+
+  # ---------------------------------------------------------------------------
+  # 4. Collision proxy: sustained box overlap while both tracks were MOVING,
+  #    followed by a sharp speed drop in at least one of them.
+  #    THRESHOLD STATUS: ALL thresholds are PLACEHOLDER, unvalidated until the
+  #    Step 8 evaluation harness reports per-rule precision/recall.
+  # ---------------------------------------------------------------------------
+  collision_proxy:
+    enabled: true
+    iou_thresh: 0.30              # PLACEHOLDER, unvalidated until Step 8 evaluation
+    min_overlap_s: 0.3            # PLACEHOLDER, unvalidated until Step 8 evaluation
+    min_consecutive_s: 0.3        # consecutive qualified frames required
+    both_moving_before: true      # both tracks must be moving pre-contact
+    min_pre_contact_speed_bl_s: 0.20    # PLACEHOLDER, unvalidated until Step 8 evaluation
+    post_contact_speed_drop_bl_s: 0.25  # PLACEHOLDER, unvalidated until Step 8 evaluation
+    window_s: 1.5                 # PLACEHOLDER, unvalidated until Step 8 evaluation
+    debounce_s: 20.0
+    severity: "High"
+
+# -----------------------------------------------------------------------------
+# Regions of interest / lanes.
+#
+# Geometry is authored in PIXEL coordinates of a reference frame resolution by
+# scripts/define_camera_geometry.py. The reference resolution is stored so the
+# pipeline can rescale if the live stream size differs.
+#
+# MULTIPLE LANES are supported. Each entry under `lanes` carries:
+#   name      : identifier, used as zone_id in events
+#   polygon   : lane outline in reference-frame pixels
+#   direction : two pixel points [[x1,y1],[x2,y2]] (tail -> head), or null
+#
+# `lanes[].direction` is the SINGLE SOURCE OF TRUTH for lane direction. There is
+# deliberately no direction key under `rules`, so a direction cannot drift out of
+# sync with the lane it belongs to.
+#
+# An empty list means no lanes are configured: stopped_vehicle and wrong_way
+# refuse to construct, with an explicit error. Validation rejects "full_frame".
+# -----------------------------------------------------------------------------
+rois:
+  lanes: []
+  # Optional additional named zones, each with its own polygon.
+  zones: {}
+  # Resolution the ROI/direction pixels were authored in, as [width, height].
+  reference_resolution: null
