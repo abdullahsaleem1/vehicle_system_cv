@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional
 import yaml
 
 from model2_behavior.src.logging_setup import get_logger
+from model2_behavior.src.motion_check import MotionCheckConfig
 from model2_behavior.src.weights import project_root
 
 logger = get_logger(__name__)
@@ -71,6 +72,7 @@ class Model2Config:
     rule_layer: Dict[str, Any]
     rules: Dict[str, RuleConfig]
     rois: Dict[str, Any]
+    static_camera_check: Dict[str, Any] = field(default_factory=dict)
 
     def effective_snapshot(self) -> Dict[str, Any]:
         """Return a serialisable snapshot of every effective value.
@@ -88,6 +90,7 @@ class Model2Config:
             "rule_layer": dict(self.rule_layer),
             "rules": {name: cfg.as_dict() for name, cfg in self.rules.items()},
             "rois": self.rois,
+            "static_camera_check": dict(self.static_camera_check),
         }
 
 
@@ -267,6 +270,14 @@ def load_config(path: Optional[str | Path] = None, validate: bool = True) -> Mod
                 "Author lanes with scripts/define_camera_geometry.py."
             )
 
+    # ---- static-camera precondition check -----------------------------------
+    # Validated here so a bad threshold fails at load rather than mid-run.
+    static_camera_check = dict(raw.get("static_camera_check") or {})
+    try:
+        MotionCheckConfig.from_mapping(static_camera_check).validate()
+    except ValueError as exc:
+        raise ConfigError(f"static_camera_check is invalid: {exc}") from exc
+
     return Model2Config(
         raw=raw,
         config_path=config_path,
@@ -279,6 +290,7 @@ def load_config(path: Optional[str | Path] = None, validate: bool = True) -> Mod
         rule_layer=rule_layer,
         rules=rules,
         rois=rois,
+        static_camera_check=static_camera_check,
     )
 
 

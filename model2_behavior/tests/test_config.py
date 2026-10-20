@@ -223,3 +223,37 @@ class TestEffectiveSnapshot:
     def test_rule_layer_precision_filter_present(self) -> None:
         config = load_config(REAL_CONFIG, validate=False)
         assert config.rule_layer["min_track_mean_conf"] == pytest.approx(0.35)
+
+
+class TestStaticCameraCheck:
+    """The static-camera precondition check is configured and validated."""
+
+    def test_real_config_declares_the_check(self) -> None:
+        config = load_config(REAL_CONFIG, validate=False)
+        assert config.static_camera_check["enabled"] is True
+        assert config.static_camera_check["threshold"] > 0
+
+    def test_snapshot_records_the_check(self) -> None:
+        config = load_config(REAL_CONFIG, validate=False)
+        snapshot = config.effective_snapshot()
+        assert snapshot["static_camera_check"]["enabled"] is True
+
+    def test_missing_block_defaults_to_enabled(self, tmp_path: Path) -> None:
+        raw = yaml.safe_load(REAL_CONFIG.read_text(encoding="utf-8"))
+        raw.pop("static_camera_check", None)
+        target = tmp_path / "model2.yaml"
+        target.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+        config = load_config(target, validate=False)
+        # An absent block means "check with defaults", not "silently skip".
+        assert config.static_camera_check == {}
+        assert config.effective_snapshot()["static_camera_check"] == {}
+
+    def test_invalid_threshold_is_rejected_at_load(self, tmp_path: Path) -> None:
+        path = write_config(tmp_path, {"static_camera_check": {"threshold": 0.0}})
+        with pytest.raises(ConfigError, match="static_camera_check is invalid"):
+            load_config(path, validate=False)
+
+    def test_unknown_key_is_rejected_at_load(self, tmp_path: Path) -> None:
+        path = write_config(tmp_path, {"static_camera_check": {"threshhold": 0.02}})
+        with pytest.raises(ConfigError, match="static_camera_check is invalid"):
+            load_config(path, validate=False)

@@ -83,7 +83,16 @@ DEFAULT_IMAGE = (
     / "vehicle_0.jpg"
 )
 
-DEFAULT_BASELINE = PROJECT_ROOT / "outputs" / "model1_regression" / "baseline.json"
+#: The canonical baseline lives with the tests so it is tracked by git and
+#: reviewed alongside the code. It was recorded AFTER ``lap==0.5.13`` was
+#: installed into ``yolo_env``, so it captures the post-dependency environment
+#: that Model 1 actually runs in from then on.
+DEFAULT_BASELINE = PROJECT_ROOT / "tests" / "fixtures" / "model1_regression_baseline.json"
+
+#: A run-local copy is also written under outputs/ for run artifacts, but the
+#: comparison always reads the tracked fixture above unless --baseline says
+#: otherwise.
+OUTPUTS_BASELINE = PROJECT_ROOT / "outputs" / "model1_regression" / "baseline.json"
 
 #: Fixed inference settings. Changing any of these invalidates the baseline, so
 #: they are written INTO the baseline and compared on every run.
@@ -191,6 +200,40 @@ def run_detection(model: Any, image_path: Path) -> List[Dict[str, Any]]:
     return detections
 
 
+def _repo_relative(path: Path) -> str:
+    """Return ``path`` relative to the repository root, using forward slashes.
+
+    The baseline is a TRACKED fixture, so it must not embed an absolute path that
+    only exists on one machine. Storing the repo-relative form keeps the record
+    portable while still identifying exactly which file was used.
+
+    Args:
+        path: Absolute path inside the repository.
+
+    Returns:
+        The repo-relative POSIX-style path, or the absolute path when it lies
+        outside the repository.
+    """
+    try:
+        return path.resolve().relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def _resolve_repo_relative(stored: str) -> Path:
+    """Resolve a stored repo-relative path back to an absolute path.
+
+    Args:
+        stored: A repo-relative POSIX path (or an absolute path from an older
+            baseline record).
+
+    Returns:
+        An absolute path.
+    """
+    candidate = Path(stored)
+    return candidate if candidate.is_absolute() else (REPO_ROOT / candidate)
+
+
 def build_record(model: Any, image_path: Path) -> Dict[str, Any]:
     """Build the comparable record for the current environment.
 
@@ -205,9 +248,10 @@ def build_record(model: Any, image_path: Path) -> Dict[str, Any]:
     image = cv2.imread(str(image_path))
     return {
         "checked_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "weights_path": str(MODEL1_WEIGHTS),
+        # Repo-relative so the tracked baseline is portable across checkouts.
+        "weights_path": _repo_relative(MODEL1_WEIGHTS),
         "weights_size_bytes": MODEL1_WEIGHTS.stat().st_size,
-        "image_path": str(image_path),
+        "image_path": _repo_relative(image_path),
         "image_sha256": sha256_file(image_path),
         "image_size": [int(image.shape[1]), int(image.shape[0])],
         "class_names": {str(k): str(v) for k, v in model.names.items()},
@@ -303,7 +347,6 @@ def print_report(record: Dict[str, Any], title: str) -> None:
             f"    [{index}] class={detection['class_id']} "
             f"conf={detection['confidence']:.6f} box=[{box}]"
         )
-
 
 def main(argv: Optional[List[str]] = None) -> int:
     """Run the Model 1 regression check.

@@ -43,6 +43,7 @@ from model2_behavior.src.events import EventWriter, IncidentEvent
 from model2_behavior.src.frame_clock import FrameClock, build_clock
 from model2_behavior.src.geometry import CameraGeometry, build_camera_geometry
 from model2_behavior.src.logging_setup import get_logger
+from model2_behavior.src.motion_check import build_motion_checker
 from model2_behavior.src.rules import build_rules, describe_rules
 from model2_behavior.src.rules.base import FrameContext, Rule, RuleHit
 from model2_behavior.src.tracks import Observation, TrackStore
@@ -161,8 +162,8 @@ class PipelineResult:
         median_track_lifetime_s: Median track lifetime in seconds.
         tracks_shorter_than_1s: Count of tracks lasting under one second.
         suspected_id_switches: HEURISTIC count of possible track fragmentation.
-        id_switch_indicators: Deprecated alias of ``suspected_id_switches``, kept
-            in the JSON so an older reader does not break.
+        camera_motion: Static-camera check summary. ``camera_motion_suspected`` is
+            the flag to read; the surrounding fields say how it was decided.
     """
 
     mode: str = "full"
@@ -183,7 +184,7 @@ class PipelineResult:
     median_track_lifetime_s: float = 0.0
     tracks_shorter_than_1s: int = 0
     suspected_id_switches: int = 0
-    id_switch_indicators: int = 0
+    camera_motion: Dict[str, Any] = field(default_factory=dict)
     output_dir: Optional[str] = None
     events_path: Optional[str] = None
     annotated_video_path: Optional[str] = None
@@ -226,7 +227,8 @@ class PipelineResult:
                 "HEURISTIC: short-lived tracks that end early and share a class with a "
                 "later track. This is NOT a tracking-accuracy metric."
             ),
-            "id_switch_indicators": self.id_switch_indicators,
+            "camera_motion_suspected": bool(self.camera_motion.get("camera_motion_suspected", False)),
+            "camera_motion": self.camera_motion,
             "tracks": [track.to_dict() for track in self.tracks],
             "output_dir": self.output_dir,
             "events_path": self.events_path,
@@ -383,6 +385,11 @@ class BehaviorPipeline:
 
         self.rules: List[Rule] = []
 
+        # Static-camera precondition. Every rule assumes a fixed camera, so the
+        # pipeline checks the scene's global shift against the first frame and
+        # reports `camera_motion_suspected` rather than failing silently.
+        self.motion_checker = build_motion_checker(config.static_camera_check)
+
         # Snapshot every effective value so nothing is silently defaulted.
         self._snapshot: Dict[str, Any] = config.effective_snapshot()
         self._snapshot["resolved_device"] = self.device
@@ -391,6 +398,7 @@ class BehaviorPipeline:
         self._snapshot["tracking_only"] = tracking_only
         self._snapshot["warmup_frames"] = self.warmup_frames
         self._snapshot["class_names"] = self.detector.class_names
+        self._snapshot["static_camera_check"] = self.motion_checker.config.to_dict()
         self.config_snapshot_path = self.output_dir / "effective_config.json"
 
         self.event_writer = EventWriter(self.output_dir, camera_id=config.camera_id)
@@ -688,6 +696,11 @@ class BehaviorPipeline:
                 if frame_index >= self.warmup_frames:
                     last_frame_time = now
 
+                # Static-camera check. The first frame becomes the reference; every
+                # later sampled frame is compared against it. This never raises and
+                # never blocks the run.
+                self.motion_checker.observe(frame, frame_index)
+
                 raw_observations = self.detector.track_frame(frame)
                 observations = [
                     Observation(
@@ -781,7 +794,7 @@ class BehaviorPipeline:
         self.result.p95_frame_time_ms = _percentile(frame_times_ms, 95)
         self.result.clip_duration_s = last_time_s
         self._compute_track_stats()
-        self.result.id_switch_indicators = self.result.suspected_id_switches
+        self.result.camera_motion = self.motion_checker.finalize().to_dict()
         self.result.events = self.event_writer.events
         self.result.counts_by_type = self.event_writer.counts_by_type()
         self.result.events_path = str(self.event_writer.events_path)
@@ -803,6 +816,8 @@ class BehaviorPipeline:
         )
         logger.info("Event counts | %s", self.result.counts_by_type)
         logger.info("Clock | %s", self.result.clock)
+        if self.result.camera_motion:
+            logger.info("Camera-motion check | %s", self.result.camera_motion)
         if self.result.suspected_id_switches:
             logger.warning(
                 "suspected_id_switches (heuristic) flagged %s possible fragmentation(s); "

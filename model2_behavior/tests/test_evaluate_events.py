@@ -624,3 +624,226 @@ class TestRunEvaluation:
         labels = self.build_tree(tmp_path)
         _, scores = run_evaluation(labels, tmp_path / "events")
         json.dumps({name: score.to_dict() for name, score in scores.items()})
+
+
+class TestMatchingGuarantees:
+    """The properties the reviewers asked to see pinned explicitly."""
+
+    def clip(self, labels, predictions):
+        """Build a ClipData for matching.
+
+        Args:
+            labels: Label list.
+            predictions: Prediction list.
+
+        Returns:
+            The clip data.
+        """
+        from model2_behavior.scripts.evaluate_events import ClipData
+
+        return ClipData(clip="clip_a", labels=list(labels), predictions=list(predictions))
+
+    def test_duplicates_become_false_positives_not_extra_tps(self) -> None:
+        # Three events inside one label window: exactly one TP, two FPs. This is
+        # the one-to-one guarantee: a rule that fires repeatedly cannot inflate
+        # recall.
+        label = Label("clip_a", "cam_01", "wrong_way", 10.0, 12.0, "")
+        predictions = [
+            Prediction("clip_a", "wrong_way", 10.5, "d1"),
+            Prediction("clip_a", "wrong_way", 11.0, "d2"),
+            Prediction("clip_a", "wrong_way", 11.5, "d3"),
+        ]
+        matches, false_positives, false_negatives = match_predictions(
+            self.clip([label], predictions), "wrong_way", DEFAULT_TOLERANCE_S, 1
+        )
+        assert len(matches) == 1
+        assert len(false_positives) == 2
+        assert false_negatives == []
+
+    def test_one_prediction_never_credits_two_labels(self) -> None:
+        labels = [
+            Label("clip_a", "cam_01", "wrong_way", 10.0, 12.0, ""),
+            Label("clip_a", "cam_01", "wrong_way", 12.0, 14.0, ""),
+        ]
+        predictions = [Prediction("clip_a", "wrong_way", 12.5, "p1")]
+        matches, _, false_negatives = match_predictions(
+            self.clip(labels, predictions), "wrong_way", DEFAULT_TOLERANCE_S, 1
+        )
+        assert len(matches) == 1
+        assert len(false_negatives) == 1
+
+    def test_out_of_window_same_type_event_on_positive_clip_is_fp(self) -> None:
+        # A wrong_way event long after the labelled incident is a false positive,
+        # not an extra TP, and the label is still a false negative.
+        label = Label("clip_a", "cam_01", "wrong_way", 10.0, 12.0, "")
+        prediction = Prediction("clip_a", "wrong_way", 90.0, "late")
+        matches, false_positives, false_negatives = match_predictions(
+            self.clip([label], [prediction]), "wrong_way", DEFAULT_TOLERANCE_S, 1
+        )
+        assert matches == []
+        assert len(false_positives) == 1
+        assert len(false_negatives) == 1
+
+    def test_false_alarm_rate_uses_total_negative_duration(self) -> None:
+        # Two negative clips, 900 s each (1800 s total), and two false alarms
+        # across them: 4 alarms/hour. The denominator is TOTAL duration, not the
+        # number of clips.
+        from model2_behavior.scripts.evaluate_events import ClipData
+
+        clips = {
+            "neg_a": ClipData(
+                clip="neg_a",
+                labels=[Label("neg_a", "cam_01", "", 0.0, 0.0, "")],
+                predictions=[Prediction("neg_a", "wrong_way", 5.0, "f1")],
+                duration_s=900.0,
+            ),
+            "neg_b": ClipData(
+                clip="neg_b",
+                labels=[Label("neg_b", "cam_01", "", 0.0, 0.0, "")],
+                predictions=[
+                    Prediction("neg_b", "wrong_way", 5.0, "f2"),
+                    Prediction("neg_b", "sudden_decel", 6.0, "f3"),
+                ],
+                duration_s=900.0,
+            ),
+        }
+        scores = score_rules(clips, ("wrong_way", "sudden_decel"), DEFAULT_TOLERANCE_S, 1)
+        assert scores["wrong_way"].negative_clip_seconds == pytest.approx(1800.0)
+        assert scores["wrong_way"].false_alarms_per_hour == pytest.approx(4.0)
+        # sudden_decel saw a single false alarm over the same 1800 s.
+        assert scores["sudden_decel"].false_alarms_on_negative_clips == 1
+        assert scores["sudden_decel"].false_alarms_per_hour == pytest.approx(2.0)
+
+
+class TestSplitFiltering:
+    """--split selects disjoint row sets for tuning and reporting."""
+
+    def write_split_labels(self, tmp_path: Path) -> Path:
+        """Write a labels file with an explicit split column.
+
+        Args:
+            tmp_path: pytest temporary directory.
+
+        Returns:
+            The labels path.
+        """
+        path = tmp_path / "labels.csv"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(
+                ["clip", "camera_id", "incident_type", "start_s", "end_s", "notes", "split"]
+            )
+            writer.writerow(["clip_a.mp4", "cam_01", "wrong_way", "10.0", "12.0", "", "tune"])
+            writer.writerow(["clip_b.mp4", "cam_01", "wrong_way", "10.0", "12.0", "", "test"])
+        return path
+
+    def test_split_selects_only_its_rows(self, tmp_path: Path) -> None:
+        labels = self.write_split_labels(tmp_path)
+        events_dir = tmp_path / "events"
+        write_events(events_dir / "clip_a.json", [event("wrong_way", 11.0, "a")])
+        write_events(events_dir / "clip_b.json", [event("wrong_way", 11.0, "b")])
+
+        tune_clips, _ = run_evaluation(labels, events_dir, split="tune")
+        test_clips, _ = run_evaluation(labels, events_dir, split="test")
+        all_clips, _ = run_evaluation(labels, events_dir, split="all")
+
+        assert set(tune_clips) == {"clip_a.mp4"}
+        assert set(test_clips) == {"clip_b.mp4"}
+        assert set(all_clips) == {"clip_a.mp4", "clip_b.mp4"}
+
+    def test_split_with_no_matching_rows_is_rejected(self, tmp_path: Path) -> None:
+        # A labels file whose rows are all assigned to 'test', evaluated with
+        # --split tune, must fail loudly rather than silently score nothing.
+        path = tmp_path / "labels.csv"
+        with path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(
+                ["clip", "camera_id", "incident_type", "start_s", "end_s", "notes", "split"]
+            )
+            writer.writerow(["clip_b.mp4", "cam_01", "wrong_way", "10.0", "12.0", "", "test"])
+        events_dir = tmp_path / "events"
+        write_events(events_dir / "clip_b.json", [])
+        with pytest.raises(EvaluationError, match="assigned to split"):
+            run_evaluation(path, events_dir, split="tune")
+
+    def test_split_is_a_noop_without_the_column(self, tmp_path: Path) -> None:
+        # A labels file predating the split column still evaluates under --split.
+        labels = write_labels(
+            tmp_path / "labels.csv",
+            [("clip_a.mp4", "cam_01", "wrong_way", "10.0", "12.0", "")],
+        )
+        events_dir = tmp_path / "events"
+        write_events(events_dir / "clip_a.json", [event("wrong_way", 11.0, "a")])
+        clips, _ = run_evaluation(labels, events_dir, split="tune")
+        assert set(clips) == {"clip_a.mp4"}
+
+    def test_invalid_split_is_rejected(self, tmp_path: Path) -> None:
+        labels = self.write_split_labels(tmp_path)
+        events_dir = tmp_path / "events"
+        write_events(events_dir / "clip_a.json", [])
+        with pytest.raises(EvaluationError, match="split must be one of"):
+            run_evaluation(labels, events_dir, split="validation")
+
+    def test_invalid_split_value_in_csv_is_rejected(self) -> None:
+        row = {
+            "clip": "clip_a.mp4",
+            "camera_id": "cam_01",
+            "incident_type": "wrong_way",
+            "start_s": "1.0",
+            "end_s": "2.0",
+            "notes": "",
+            "split": "validation",
+        }
+        with pytest.raises(EvaluationError, match="split must be 'tune' or 'test'"):
+            parse_label_rows([row], "labels.csv")
+
+
+class TestConfigHash:
+    """A metric must carry the config that produced it."""
+
+    def test_hash_is_stable_across_identical_snapshots(self) -> None:
+        from model2_behavior.scripts.evaluate_events import config_hash
+
+        snapshot = {"rules": {"wrong_way": {"params": {"angle_tolerance_deg": 45.0}}}}
+        assert config_hash(dict(snapshot)) == config_hash(dict(snapshot))
+
+    def test_hash_changes_when_a_threshold_changes(self) -> None:
+        from model2_behavior.scripts.evaluate_events import config_hash
+
+        base = {"rules": {"wrong_way": {"params": {"angle_tolerance_deg": 45.0}}}}
+        changed = {"rules": {"wrong_way": {"params": {"angle_tolerance_deg": 30.0}}}}
+        assert config_hash(base) != config_hash(changed)
+
+    def test_hash_ignores_non_behavioural_keys(self) -> None:
+        from model2_behavior.scripts.evaluate_events import config_hash
+
+        base = {"rules": {}, "config_path": "E:/one.yaml", "checked_utc": "2026-01-01T00:00:00Z"}
+        other = {"rules": {}, "config_path": "C:/two.yaml", "checked_utc": "2026-06-06T00:00:00Z"}
+        # A path or timestamp change must not read as a settings change.
+        assert config_hash(base) == config_hash(other)
+
+    def test_hash_is_none_without_a_snapshot(self) -> None:
+        from model2_behavior.scripts.evaluate_events import config_hash
+
+        assert config_hash({}) is None
+
+    def test_shared_hash_over_clips(self) -> None:
+        from model2_behavior.scripts.evaluate_events import ClipData, config_hash_used
+
+        snapshot = {"rules": {"wrong_way": {"params": {"x": 1}}}}
+        clips = {
+            "a": ClipData(clip="a", config_snapshot=dict(snapshot)),
+            "b": ClipData(clip="b", config_snapshot=dict(snapshot)),
+        }
+        assert config_hash_used(clips) is not None
+
+    def test_hash_is_none_when_clips_used_different_configs(self) -> None:
+        from model2_behavior.scripts.evaluate_events import ClipData, config_hash_used
+
+        clips = {
+            "a": ClipData(clip="a", config_snapshot={"rules": {"wrong_way": {"params": {"x": 1}}}}),
+            "b": ClipData(clip="b", config_snapshot={"rules": {"wrong_way": {"params": {"x": 2}}}}),
+        }
+        # A single hash would be misleading, so none is reported.
+        assert config_hash_used(clips) is None

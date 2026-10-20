@@ -49,7 +49,8 @@ Each label may be matched by at most ``--max-matches-per-label`` predictions
 (default 1), and each prediction may satisfy at most one label, so a rule that
 fires 40 times during one stopped vehicle cannot inflate recall. Matched
 predictions are TPs; unmatched predictions on a clip that has labels of that
-type are false positives; unmatched predictions on a NEGATIVE clip are counted
+type are false positives (including a same-type prediction whose timestamp falls
+outside the label window); unmatched predictions on a NEGATIVE clip are counted
 separately as false alarms, because those are the ones that become user-facing
 noise.
 
@@ -58,9 +59,20 @@ Reported per rule
     * precision, recall, F1
     * TP / FP / FN counts and the unmatched predictions themselves (with their
       timestamps), so a human can see *which* events were wrong
-    * false alarms per hour on negative clips, using total negative-clip duration
+    * false alarms per hour on negative clips, using the TOTAL duration of
+      negative clips as the denominator
     * the config snapshot used for each clip (thresholds + effective tracker
-      parameters), so a metric is never quoted without the settings that made it
+      parameters) AND a ``config_hash`` of the behaviour-affecting settings, so a
+      metric is never quoted without the settings that made it
+
+Tuning vs reporting (``--split``)
+---------------------------------
+``labels.csv`` may carry an optional ``split`` column with values ``tune`` or
+``test``. ``--split tune`` and ``--split test`` then select disjoint row sets, so
+thresholds can be chosen on one set and reported on held-out clips without
+maintaining two label files. ``--split all`` (the default) uses every row. When
+no row carries a split, ``--split tune/test`` is a no-op with a warning rather
+than an error, so a labels file written before the column existed still works.
 
 Usage
 -----
@@ -84,6 +96,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import shutil
 import sys
@@ -118,6 +131,13 @@ DEFAULT_MATCHES_PER_LABEL = 1
 
 LABEL_COLUMNS = ("clip", "camera_id", "incident_type", "start_s", "end_s", "notes")
 
+#: Valid values for ``--split``. ``all`` evaluates every label row; ``tune`` and
+#: ``test`` select their own rows so a threshold can be tuned on one set and
+#: reported on another. An optional ``split`` column in ``labels.csv`` provides
+#: the row-level assignment; when the column is absent, ``tune``/``test`` are
+#: no-ops and every row is used.
+SPLIT_CHOICES = ("all", "tune", "test")
+
 
 class EvaluationError(RuntimeError):
     """Raised when the inputs cannot be interpreted."""
@@ -134,6 +154,10 @@ class Label:
         start_s: Incident start in stream seconds (0.0 for a negative clip).
         end_s: Incident end in stream seconds (0.0 for a negative clip).
         notes: Free-text note, carried into the report.
+        split: Optional ``tune``/``test`` assignment from an extra ``split``
+            column, or ``""`` when the column is absent. Lets thresholds be
+            tuned on one half of the data and reported on the other without
+            maintaining two label files.
     """
 
     clip: str
@@ -142,6 +166,7 @@ class Label:
     start_s: float
     end_s: float
     notes: str = ""
+    split: str = ""
 
     @property
     def is_negative(self) -> bool:
@@ -224,6 +249,12 @@ def parse_label_rows(rows: Iterable[Dict[str, str]], source: str) -> List[Label]
         if not clip:
             raise EvaluationError(f"{source}:{line_number}: 'clip' is empty")
 
+        split = (row.get("split") or "").strip().lower()
+        if split and split not in ("tune", "test"):
+            raise EvaluationError(
+                f"{source}:{line_number}: split must be 'tune' or 'test' (or empty), got {split!r}"
+            )
+
         incident_type = (row.get("incident_type") or "").strip()
         if incident_type and incident_type not in KNOWN_INCIDENT_TYPES:
             raise EvaluationError(
@@ -248,6 +279,7 @@ def parse_label_rows(rows: Iterable[Dict[str, str]], source: str) -> List[Label]
                     start_s=0.0,
                     end_s=0.0,
                     notes=(row.get("notes") or "").strip(),
+                    split=split,
                 )
             )
             continue
@@ -274,6 +306,7 @@ def parse_label_rows(rows: Iterable[Dict[str, str]], source: str) -> List[Label]
                 start_s=start_s,
                 end_s=end_s,
                 notes=(row.get("notes") or "").strip(),
+                split=split,
             )
         )
     return labels
@@ -593,6 +626,33 @@ def rule_config_for(snapshot: Dict[str, Any], rule_name: str) -> Dict[str, Any]:
     return dict(entry.get("params") or {})
 
 
+def config_hash(snapshot: Dict[str, Any]) -> Optional[str]:
+    """Hash the parts of a config snapshot that affect rule decisions.
+
+    A metric is only meaningful alongside the thresholds that produced it, and a
+    hash is the cheapest way to prove two numbers came from the same settings. The
+    hash deliberately covers only what changes behaviour — rule parameters, the
+    rule-layer filter, detector settings, and effective tracker parameters — so a
+    cosmetic change (a path, a timestamp) does not invalidate a comparison.
+
+    Args:
+        snapshot: Parsed ``effective_config.json``.
+
+    Returns:
+        A 16-hex-character digest, or None when there is no snapshot.
+    """
+    if not snapshot:
+        return None
+    payload = {
+        "rules": snapshot.get("rules"),
+        "rule_layer": snapshot.get("rule_layer"),
+        "detector": snapshot.get("detector"),
+        "tracker_params": snapshot.get("tracker_params"),
+    }
+    encoded = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()[:16]
+
+
 def match_predictions(
     clip: ClipData,
     incident_type: str,
@@ -816,6 +876,7 @@ def print_report(
     tolerance_s: float,
     max_matches_per_label: int,
     labels_path: Path,
+    split: str = "all",
 ) -> None:
     """Print the evaluation report.
 
@@ -825,6 +886,8 @@ def print_report(
         tolerance_s: Tolerance used, printed so the numbers are never ambiguous.
         max_matches_per_label: Match cap used.
         labels_path: Labels file, for traceability.
+        split: Split filter used, printed so a tune/test number is never
+            mistaken for an all-data number.
     """
     negatives = [clip for clip in clips.values() if clip.negative]
     total_negative_seconds = sum(clip.duration_s or 0.0 for clip in negatives)
@@ -833,6 +896,7 @@ def print_report(
     print("MODEL 2 EVENT EVALUATION - FR-20 (pending supervisor sign-off)")
     print("=" * 78)
     print(f"Labels file            : {labels_path}")
+    print(f"Split                  : {split}")
     print(f"Clips labelled         : {len(clips)}")
     print(f"Negative clips         : {len(negatives)} ({total_negative_seconds / 60.0:.2f} min)")
     print(f"Match tolerance        : +/- {tolerance_s:.2f} s")
@@ -905,6 +969,7 @@ def build_config_section(clips: Dict[str, ClipData], incident_types: Sequence[st
         section[clip.clip] = {
             "config_snapshot": {
                 "path": None,
+                "config_hash": config_hash(snapshot),
                 "rule_params": {
                     name: rule_config_for(snapshot, name) for name in incident_types
                 },
@@ -919,6 +984,31 @@ def build_config_section(clips: Dict[str, ClipData], incident_types: Sequence[st
     return section
 
 
+def config_hash_used(clips: Dict[str, ClipData]) -> Optional[str]:
+    """Return a single config hash for the whole evaluation, when unambiguous.
+
+    Every clip should have run under the same thresholds, so one hash is the
+    useful summary. If clips were produced by *different* configs the hash would
+    be misleading, so the ambiguity is surfaced rather than hidden: the function
+    returns ``None`` and the caller can see the per-clip hashes separately.
+
+    Args:
+        clips: Clip data keyed by clip name.
+
+    Returns:
+        The shared config hash, or ``None`` when there is none or it differs
+        across clips.
+    """
+    hashes = {
+        config_hash(clip.config_snapshot)
+        for clip in clips.values()
+        if clip.config_snapshot
+    }
+    if len(hashes) == 1:
+        return next(iter(hashes))
+    return None
+
+
 def run_evaluation(
     labels_path: Path,
     events_dir: Path,
@@ -926,6 +1016,7 @@ def run_evaluation(
     tolerance_s: float = DEFAULT_TOLERANCE_S,
     max_matches_per_label: int = DEFAULT_MATCHES_PER_LABEL,
     incident_types: Sequence[str] = KNOWN_INCIDENT_TYPES,
+    split: str = "all",
 ) -> Tuple[Dict[str, ClipData], Dict[str, RuleScore]]:
     """Run the full evaluation in memory.
 
@@ -939,6 +1030,10 @@ def run_evaluation(
         tolerance_s: Seconds added to BOTH ends of a label window.
         max_matches_per_label: Cap on predictions credited to one label.
         incident_types: Rules to score.
+        split: ``all`` to use every row, or ``tune``/``test`` to keep only rows
+            whose ``split`` column matches. When no row carries a split, the
+            filter is a no-op rather than an error, because a labels file that
+            predates the column must still evaluate.
 
     Returns:
         ``(clips, scores)``.
@@ -950,6 +1045,8 @@ def run_evaluation(
         raise EvaluationError(f"tolerance_s must be >= 0, got {tolerance_s}")
     if max_matches_per_label < 1:
         raise EvaluationError(f"max_matches_per_label must be >= 1, got {max_matches_per_label}")
+    if split not in SPLIT_CHOICES:
+        raise EvaluationError(f"split must be one of {SPLIT_CHOICES}, got {split!r}")
 
     labels = load_labels(labels_path)
     if clips_filter:
@@ -958,6 +1055,24 @@ def run_evaluation(
         if not labels:
             raise EvaluationError(
                 f"no label rows remain after filtering to {list(clips_filter)}"
+            )
+
+    if split != "all":
+        labelled_splits = {label.split for label in labels}
+        if labelled_splits - {""}:
+            # The column exists somewhere, so honour it strictly: a row with no
+            # split is not silently included in a split it was never assigned to.
+            labels = [label for label in labels if label.split == split]
+            if not labels:
+                raise EvaluationError(
+                    f"no label rows are assigned to split {split!r}; "
+                    f"found splits {sorted(labelled_splits - {''})}"
+                )
+        else:
+            logger.warning(
+                "split=%r requested but no row carries a 'split' column; "
+                "evaluating every row. Add a 'split' column to separate tune/test.",
+                split,
             )
 
     events_by_clip = discover_clips(events_dir)
@@ -1013,6 +1128,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Comma-separated clip names to restrict the evaluation to.",
     )
     parser.add_argument(
+        "--split",
+        choices=SPLIT_CHOICES,
+        default="all",
+        help=(
+            "Evaluate only rows whose optional 'split' column matches. Use 'tune' to "
+            "choose thresholds and 'test' to report them on held-out clips. Default: all."
+        ),
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         default=None,
@@ -1054,20 +1178,23 @@ def main(argv: Optional[List[str]] = None) -> int:
             clips_filter=clips_filter,
             tolerance_s=args.tolerance_s,
             max_matches_per_label=args.max_matches_per_label,
+            split=args.split,
         )
     except EvaluationError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
 
-    print_report(clips, scores, args.tolerance_s, args.max_matches_per_label, args.labels)
+    print_report(clips, scores, args.tolerance_s, args.max_matches_per_label, args.labels, args.split)
 
     report = {
         "labels_file": str(args.labels),
         "events_dir": str(events_dir),
+        "split": args.split,
         "tolerance_s": args.tolerance_s,
         "max_matches_per_label": args.max_matches_per_label,
         "clip_count": len(clips),
         "negative_clip_count": sum(1 for clip in clips.values() if clip.negative),
+        "config_hash": config_hash_used(clips),
         "clips": {
             clip.clip: {
                 "negative": clip.negative,
@@ -1083,7 +1210,16 @@ def main(argv: Optional[List[str]] = None) -> int:
             "precision": "TP / (TP + FP); FP excludes false alarms on negative clips, which are reported separately.",
             "recall": "TP / (TP + FN); each label can be credited at most "
             f"{args.max_matches_per_label} prediction(s).",
-            "false_alarms_per_hour": "Unmatched predictions on negative clips, divided by total negative-clip hours.",
+            "matching": "One-to-one: each label is credited at most "
+            f"{args.max_matches_per_label} prediction(s) and each prediction satisfies at "
+            "most one label, so duplicate alerts on one incident are counted as false "
+            "positives, not extra TPs.",
+            "out_of_window": "A prediction whose type matches a clip label but whose "
+            "timestamp falls outside [start_s - tol, end_s + tol] is a false positive.",
+            "false_alarms_per_hour": "Unmatched predictions on negative clips, divided by "
+            "the TOTAL duration of negative clips (not by the number of clips).",
+            "split": "Rows are selected by the optional 'split' column; --split all uses "
+            "every row.",
             "confidence_semantics": "event.confidence is DETECTION confidence, not incident probability.",
         },
     }

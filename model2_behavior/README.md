@@ -61,6 +61,30 @@ frames and variable frame rates do not corrupt time-based thresholds. See
 script); `open()`/`read_text()`/`write_text()` are called on `Path` objects, and
 `cv2` calls stringify explicitly with `str(path)`.
 
+**The camera is assumed to be STATIC.**
+
+Every rule here assumes a fixed camera: lane polygons are authored once and never
+move, `wrong_way` compares a vehicle's displacement against a fixed lane
+direction, and `stopped_vehicle` / `sudden_decel` measure motion *relative to the
+image*, which is only motion relative to the ground while the camera is fixed. On
+a moving camera (a vehicle-mounted or panning unit, or a camera knocked by wind)
+those assumptions break silently.
+
+The pipeline therefore runs a **static-camera check** (`src/motion_check.py`): it
+estimates the scene's global shift between the current frame and the **first frame
+of the run** using sparse optical flow, and takes the **median** displacement of
+the tracked corners so that vehicles moving independently cannot masquerade as
+camera motion. When that median reaches `static_camera_check.threshold` (default
+`0.01`, i.e. 1% of the frame width) the run logs a warning and records
+`camera_motion_suspected: true` (plus a `camera_motion` block detailing how the
+decision was made) in `run_summary.json`.
+
+The check **never** blocks a run or alters an event; it flags footage that must be
+reviewed rather than trusted. Reference frames for lane authoring **must come from
+the same fixed camera** the pipeline will run on — authoring lanes on any other
+view (for example a different camera or a moving shot) produces geometry that
+cannot be valid.
+
 ---
 
 ## What it does
@@ -202,6 +226,11 @@ by clicking on a reference frame:
 .\yolo_env\Scripts\python.exe -m model2_behavior.scripts.define_camera_geometry --source path\to\clip.mp4 --config model2_behavior\configs\model2.yaml
 ```
 
+> **The reference frame must come from the fixed camera the pipeline will run
+> on.** Lanes are stored in that camera's pixel coordinates and never move, so a
+> frame from a different view — or from a moving shot — yields geometry that
+> cannot be valid. See the static-camera assumption above.
+
 Controls: left click to add points; right click or Enter to finish the polygon;
 then two clicks for the lane direction (tail → head). `u` undoes, `r` restarts,
 `q` aborts without writing. After each lane you are offered the chance to author
@@ -285,8 +314,9 @@ The run reports:
 > **`suspected_id_switches (heuristic)` is NOT a tracking-accuracy metric.**
 > It is a review hint, not a measurement of identity switches. A true id-switch
 > count requires ground-truth identity labels, which this project does not have.
-> The renamed key is in `run_summary.json`; the old `id_switch_indicators` key is
-> retained as a deprecated alias so an existing reader does not break.
+> Only the honestly-named key exists in `run_summary.json`; the earlier
+> `id_switch_indicators` alias has been **removed** so no reader can mistake the
+> heuristic for a tracking-accuracy metric.
 
 ### Reporting throughput honestly
 
@@ -301,6 +331,8 @@ under, so every run's `run_summary.json` records:
 | `frame_time_percentiles_ms` | `p50` / `p95` / `max` frame time, warm-up excluded |
 | `source_resolution` | The resolution actually processed |
 | `clip_duration_s` | Stream seconds processed (from the frame clock) |
+| `camera_motion_suspected` | Static-camera check verdict: `true` when the scene's global shift crossed the threshold |
+| `camera_motion` | The check's detail: `checked`, `threshold_fraction_of_width`, `max_shift_fraction`, `median_shift_fraction`, `samples_taken`, `skipped_frames`, `first_suspected_frame`, and the config used |
 
 **Warm-up is always excluded from the percentile and `avg_fps_excl_warmup`
 figures.** A single "fps" number measured with initialisation included is not
@@ -404,6 +436,12 @@ the tracker's second association stage can recover weak detections. Precision
 filtering happens in the **rule layer** via `rule_layer.min_track_mean_conf`
 (`0.35`), applied to each track's mean detection confidence.
 
+The **`static_camera_check`** block configures the static-camera precondition
+check (`enabled`, `work_width`, `max_corners`, `min_distance`, `threshold`,
+`min_tracked_corners`, `check_every_n_frames`). An unknown key or an out-of-range
+value is rejected at load time rather than silently defaulting. See the
+static-camera assumption above.
+
 ### Threshold status
 
 | Rule | Parameter | Status |
@@ -422,30 +460,51 @@ every value above as a starting guess.
 The harness is written and fixture-tested now; it needs no GPU and no real data to
 exercise. It reads:
 
-- **`labels.csv`** — `clip,camera_id,incident_type,start_s,end_s,notes`. An
-  **empty `incident_type` marks a NEGATIVE clip** (no incidents of any type);
-  negative clips are what make a false-alarm rate meaningful, so they are required.
+- **`labels.csv`** — `clip,camera_id,incident_type,start_s,end_s,notes` plus an
+  **optional `split` column**. An **empty `incident_type` marks a NEGATIVE clip**
+  (no incidents of any type); negative clips are what make a false-alarm rate
+  meaningful, so they are required.
 - **events JSON** per clip — from `run_pipeline.py`'s `events.json` (or
   `events.jsonl`), either one file per clip (`<clip>.json`) or one run folder per
   clip (`<run>/events.json` + `run_summary.json`).
 
 **Matching rule (fixed):** a prediction is a **TP** when its `incident_type`
 matches the label's **and** its timestamp falls inside
-`[start_s − 2 s, end_s + 2 s]` (tolerance configurable with `--tolerance-s`). A
-label can be credited at most one prediction, and a prediction can satisfy at
-most one label, so a rule that fires repeatedly during one incident cannot inflate
-recall.
+`[start_s − 2 s, end_s + 2 s]` (tolerance configurable with `--tolerance-s`).
+Matching is **one-to-one**: a label can be credited at most one prediction and a
+prediction can satisfy at most one label, so a rule that fires repeatedly during
+one incident produces **duplicate false positives, never extra TPs**. A same-type
+event whose timestamp falls outside the window on a clip that *does* have that
+label is a **false positive**. Unmatched events on a **negative** clip are counted
+separately as **false alarms** so they cannot flatter precision.
 
-It reports **per-rule precision, recall, F1**, TN/FP/FN counts, the unmatched
+It reports **per-rule precision, recall, F1**, TP/FP/FN counts, the unmatched
 predictions and missed labels themselves, **false alarms per hour on negative
-clips** (needs clip durations, recovered from each `run_summary.json`), and the
-**config snapshot actually used** — thresholds and effective tracker parameters —
-so a metric is never quoted without the settings that produced it.
+clips** (numerator: false alarms on negative clips; denominator: the **total
+duration of negative clips**, recovered from each `run_summary.json`), and the
+**config snapshot actually used** — thresholds and effective tracker parameters,
+alongside a **`config_hash`** of the behaviour-affecting settings — so a metric is
+never quoted without the settings that produced it. If clips were produced by
+different configs the single `config_hash` is reported as `null` rather than
+hiding the mismatch.
+
+#### Tuning vs reporting: `--split`
+
+`labels.csv` may carry a `split` column with values `tune` or `test`. `--split
+tune` and `--split test` then select disjoint row sets, so thresholds can be
+chosen on one set and **reported on held-out clips** without maintaining two label
+files. `--split all` (the default) uses every row; if no row carries a `split`
+column the filter is a no-op with a warning, so a labels file written before the
+column existed still evaluates.
 
 ```powershell
 # Directory of per-clip events files (or run output folders):
 .\yolo_env\Scripts\python.exe -m model2_behavior.scripts.evaluate_events `
     --labels outputs\eval\labels.csv --events-dir outputs\eval\runs
+
+# Choose thresholds on the tuning clips, then report on held-out test clips:
+.\yolo_env\Scripts\python.exe -m model2_behavior.scripts.evaluate_events `
+    --labels outputs\eval\labels.csv --events-dir outputs\eval\runs --split test
 
 # A single events file for one clip:
 .\yolo_env\Scripts\python.exe -m model2_behavior.scripts.evaluate_events `
@@ -460,7 +519,7 @@ so a metric is never quoted without the settings that produced it.
 $env:YOLO_OFFLINE="1"; .\yolo_env\Scripts\python.exe -m pytest
 ```
 
-**306 tests**, no GPU, no footage, no network. They cover geometry parsing,
+**346 tests**, no GPU, no footage, no network. They cover geometry parsing,
 load-time geometry validation (point count, self-intersection, in-frame,
 zero-length direction, overlapping lanes and their deterministic tie-break),
 multi-lane containment and rescaling, speed normalization, all four rules on
@@ -470,9 +529,33 @@ lane), rule refusal without required geometry, fps-aware threshold conversion,
 dropped-frame detection, and that a file source degrades to the container clock
 and never to wall-clock), tracking-only mode, the frame-time percentile and track
 lifetime statistics, the event contract, the Model 1 regression comparison, and
-the evaluation harness's matcher, scoring, and false-alarm arithmetic. Rules are
-tested with **synthetic geometry and lane directions supplied by the tests** —
-nothing depends on real data being present.
+the evaluation harness's matcher (including one-to-one duplicate handling,
+out-of-window false positives, the negative-duration false-alarm denominator, and
+`--split`), and the static-camera check (still scene quiet, synthetic panning
+scene flagged, then the same flag observed end to end in `run_summary.json`).
+Rules are tested with **synthetic geometry and lane directions supplied by the
+tests** — nothing depends on real data being present.
+
+The Model 1 regression baseline lives at
+`tests/fixtures/model1_regression_baseline.json` so it is **tracked by git** and
+reviewed alongside the code. It was recorded **after `lap==0.5.13` was installed**
+into `yolo_env`, so it captures the post-dependency environment Model 1 actually
+runs in from that point on; `scripts/model1_regression_check.py` compares against
+it by default.
+
+### Model 1 isolation
+
+Model 2 adds one new directory (`model2_behavior/`) and touches **two files
+outside it**, both at the repository root, neither of which is Model 1 code:
+
+| Root file | Change | Why it is safe for Model 1 |
+|---|---|---|
+| `.gitignore` | **modified** (appended Model 2 ignore rules) | Additive ignore patterns only; no existing rule removed or changed. |
+| `pytest.ini` | **added** | New file; configures `testpaths = model2_behavior/tests`. Model 1 ships no pytest suite (its checks are `plate_detection/mock_test_*.py` scripts, which do not match `python_files = test_*.py`), so this cannot alter Model 1's test workflow. It exists because pytest options must be read from a file at the `rootdir` — a config placed *inside* `model2_behavior/` is silently ignored when pytest is invoked from the root, which would leave `--strict-markers` and the `filterwarnings = error` rule inactive without any warning. |
+
+No file under `plate_detection/`, no Model 1 weight, no Model 1 checkpoint, and no
+Model 1 output is modified. `git diff main --stat -- . ":!model2_behavior"` shows
+exactly those two files and nothing else.
 
 ---
 
@@ -488,6 +571,7 @@ model2_behavior/
     config.py             loading, validation, effective tracker YAML
     geometry.py           multi-lane polygons, directions, rescaling
     frame_clock.py        PTS / wall-clock timing, dropped-frame detection
+    motion_check.py       static-camera precondition check (global shift)
     tracks.py             observations, track state, normalized speed, IoU
     detector_tracker.py   YOLO + ByteTrack wrapper
     events.py             incident schema and JSON writer
@@ -496,8 +580,10 @@ model2_behavior/
   scripts/        verify_environment, verify_weights, offline_proof,
                   gate1_report, gate2_report, gate3_report,
                   define_camera_geometry, mock_test_contract,
-                  annotation_offline_proof, run_pipeline
+                  annotation_offline_proof, run_pipeline,
+                  evaluate_events, model1_regression_check
   tests/          pytest suite
+  tests/fixtures/ tracked Model 1 regression baseline
 ```
 
 ---
@@ -513,5 +599,11 @@ model2_behavior/
 - **Lane assignment uses the box's ground-contact point**, so `wrong_way` and
   `stopped_vehicle` judge a vehicle by the lane that point falls in. Overlapping
   lanes are resolved by the first match in config order.
-- **ID-switch reporting is heuristic**, not ground truth.
+- **ID-switch reporting is heuristic**, not ground truth. (`id_switch_indicators`
+  was removed; only `suspected_id_switches` remains.)
+- **A static camera is assumed.** A moving camera invalidates fixed lane geometry
+  and every image-relative speed rule. The static-camera check flags suspected
+  motion in `run_summary.json` (`camera_motion_suspected`), but it is a warning,
+  not a correction — flagged footage must be reviewed, and the check is a
+  heuristic on the median global shift, not a calibration.
 - **Not yet run on real footage.** Step 7 is pending a sample clip or RTSP URL.

@@ -65,6 +65,30 @@ tracker_params:
   fuse_score: true
 
 # -----------------------------------------------------------------------------
+# Static-camera precondition check.
+#
+# Every rule here assumes a FIXED camera: lane polygons are authored once and
+# never move, `wrong_way` compares displacement against a fixed lane direction,
+# and `stopped_vehicle`/`sudden_decel` measure motion relative to the image.
+# A moving camera silently invalidates all of that. This check estimates the
+# scene's global shift against the FIRST frame of the run and sets
+# `camera_motion_suspected` in run_summary.json when it is too large.
+#
+# It is a warning, never a hard failure: a flagged run is still written, but the
+# output must be reviewed rather than trusted.
+#
+# Reference frames for lane authoring MUST come from this same fixed camera.
+# -----------------------------------------------------------------------------
+static_camera_check:
+  enabled: true
+  work_width: 480              # downscale width for tracking (cost control)
+  max_corners: 200             # corners tracked per estimate
+  min_distance: 8              # min corner separation, downscaled px
+  threshold: 0.01              # median shift >= 1% of frame width => suspected
+  min_tracked_corners: 12      # below this, skip rather than guess
+  check_every_n_frames: 15     # sample cadence; a camera does not move for one frame
+
+# -----------------------------------------------------------------------------
 # Rule layer
 # -----------------------------------------------------------------------------
 rule_layer:

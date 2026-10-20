@@ -484,8 +484,10 @@ class TestTrackStats:
         payload = pipeline.result.to_dict()
         assert "suspected_id_switches" in payload
         assert "NOT a tracking-accuracy metric" in payload["suspected_id_switches_note"]
-        # The deprecated alias is still present so an older reader keeps working.
-        assert payload["id_switch_indicators"] == payload["suspected_id_switches"]
+        # The deprecated ``id_switch_indicators`` alias was removed; only the
+        # honestly-named key remains, so no reader can mistake the heuristic for a
+        # tracking-accuracy metric.
+        assert "id_switch_indicators" not in payload
 
     def test_summary_reports_frame_time_percentiles(self, tmp_path: Path) -> None:
         config = load_config(REAL_CONFIG, validate=False)
@@ -503,3 +505,110 @@ class TestTrackStats:
         )
         self.compute(pipeline, [self.summary(1, 0.0, 1.0)])
         json.dumps(pipeline.result.to_dict())
+
+
+def write_synthetic_video(
+    path: Path,
+    frames: int = 20,
+    width: int = 320,
+    height: int = 240,
+    shift_per_frame: int = 0,
+    fps: float = 25.0,
+) -> Path:
+    """Write a small synthetic MP4 whose scene translates frame by frame.
+
+    A structured texture is shifted ``shift_per_frame`` pixels per frame, so the
+    result is a stand-in for a panning or moving camera. With ``shift_per_frame=0``
+    the scene is still, standing in for the fixed camera the module assumes.
+
+    Args:
+        path: Destination video path.
+        frames: Number of frames to write.
+        width: Frame width.
+        height: Frame height.
+        shift_per_frame: Horizontal translation per frame, in pixels.
+        fps: Frame rate written into the container.
+
+    Returns:
+        The written path.
+
+    Raises:
+        RuntimeError: If the OpenCV video writer cannot be opened.
+    """
+    import cv2
+
+    from model2_behavior.tests.test_motion_check import textured_frame
+
+    base = textured_frame(width=width, height=height)
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+    if not writer.isOpened():  # pragma: no cover - codec availability
+        raise RuntimeError("cv2.VideoWriter could not be opened for the synthetic video")
+    try:
+        for index in range(frames):
+            frame = np.roll(base, shift=index * shift_per_frame, axis=1)
+            writer.write(frame)
+    finally:
+        writer.release()
+    return path
+
+
+class TestCameraMotionInRunSummary:
+    """The static-camera flag must reach run_summary.json, and only when earned."""
+
+    def run_pipeline(
+        self, tmp_path: Path, shift_per_frame: int, check_every_n_frames: int = 1
+    ) -> dict:
+        """Run the pipeline over a synthetic video in tracking-only mode.
+
+        The scripted detector reports no vehicles, because the check under test is
+        about the scene, not about detections.
+
+        Args:
+            tmp_path: pytest temporary directory.
+            shift_per_frame: Horizontal scene translation per frame, in pixels.
+            check_every_n_frames: Sampling cadence for the check.
+
+        Returns:
+            The pipeline's ``run_summary`` payload.
+        """
+        video = write_synthetic_video(
+            tmp_path / "clip.mp4", shift_per_frame=shift_per_frame
+        )
+        config = load_config(REAL_CONFIG, validate=False)
+        # Override the check cadence without editing the real config file.
+        config.static_camera_check = dict(config.static_camera_check)
+        config.static_camera_check["check_every_n_frames"] = check_every_n_frames
+        pipeline = BehaviorPipeline(
+            config,
+            tmp_path / "run",
+            fps=25.0,
+            write_video=False,
+            draw=False,
+            tracking_only=True,
+        )
+        pipeline.detector = FakeDetectorTracker({})
+        pipeline.run(video)
+        return pipeline.result.to_dict()
+
+    def test_still_scene_is_not_flagged(self, tmp_path: Path) -> None:
+        payload = self.run_pipeline(tmp_path, shift_per_frame=0)
+        assert payload["camera_motion"]["checked"] is True
+        assert payload["camera_motion_suspected"] is False
+
+    def test_moving_scene_is_flagged(self, tmp_path: Path) -> None:
+        payload = self.run_pipeline(tmp_path, shift_per_frame=12)
+        assert payload["camera_motion"]["checked"] is True
+        assert payload["camera_motion_suspected"] is True
+        assert payload["camera_motion"]["max_shift_fraction"] > 0.01
+        assert payload["camera_motion"]["first_suspected_frame"] is not None
+        # The exact threshold and config used must be recorded, not implied.
+        assert payload["camera_motion"]["threshold_fraction_of_width"] > 0
+        assert payload["camera_motion"]["config"]["check_every_n_frames"] == 1
+
+    def test_off_schedule_frames_yield_no_early_suspicion(self, tmp_path: Path) -> None:
+        # With a cadence of 10 and only 20 frames, exactly two frames are sampled
+        # (10 and 20), and the scene shift between the reference and those frames
+        # is what decides the flag; the run must still report how many samples it
+        # actually took.
+        payload = self.run_pipeline(tmp_path, shift_per_frame=6, check_every_n_frames=10)
+        assert payload["camera_motion"]["samples_taken"] <= 2

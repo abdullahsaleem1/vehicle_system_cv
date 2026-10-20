@@ -350,6 +350,73 @@ def check_tracking_only() -> Dict[str, Any]:
     }
 
 
+def check_static_camera_and_metrics() -> Dict[str, Any]:
+    """Exercise the Gate 5 additions: motion check, split, hash, alias removal.
+
+    Returns:
+        Mapping of each check to whether it behaved as required.
+    """
+    import numpy as np
+
+    from model2_behavior.scripts.evaluate_events import (
+        ClipData,
+        Label,
+        config_hash,
+        config_hash_used,
+    )
+    from model2_behavior.src.motion_check import CameraMotionChecker, MotionCheckConfig
+    from model2_behavior.src.pipeline import PipelineResult
+    from model2_behavior.tests.test_motion_check import textured_frame
+
+    # Still scene: not flagged. Panning scene: flagged.
+    still = CameraMotionChecker(MotionCheckConfig(check_every_n_frames=1))
+    still.observe(textured_frame(), 0)
+    still.observe(textured_frame(), 1)
+    still_result = still.finalize().to_dict()
+
+    moving = CameraMotionChecker(MotionCheckConfig(check_every_n_frames=1))
+    moving.observe(textured_frame(), 0)
+    moving.observe(textured_frame(shift_x=40), 1)
+    moving_result = moving.finalize().to_dict()
+
+    # The renamed metric must exist and the deprecated alias must be gone.
+    summary = PipelineResult().to_dict()
+    alias_removed = "id_switch_indicators" not in summary
+
+    # Config hash: stable, and sensitive to a threshold change.
+    snapshot_a = {"rules": {"wrong_way": {"params": {"angle_tolerance_deg": 45.0}}}}
+    snapshot_b = {"rules": {"wrong_way": {"params": {"angle_tolerance_deg": 30.0}}}}
+    shared = config_hash_used(
+        {
+            "a": ClipData(clip="a", config_snapshot=dict(snapshot_a)),
+            "b": ClipData(clip="b", config_snapshot=dict(snapshot_a)),
+        }
+    )
+    differs = config_hash(snapshot_a) != config_hash(snapshot_b)
+
+    # A negative clip whose duration feeds the false-alarm denominator.
+    from model2_behavior.scripts.evaluate_events import DEFAULT_TOLERANCE_S, score_rules
+
+    negative = ClipData(
+        clip="neg",
+        labels=[Label("neg", "cam_01", "", 0.0, 0.0, "")],
+        predictions=[],
+        duration_s=3600.0,
+    )
+    scores = score_rules({"neg": negative}, ("wrong_way",), DEFAULT_TOLERANCE_S, 1)
+
+    return {
+        "still_scene_flagged": still_result["camera_motion_suspected"],
+        "moving_scene_flagged": moving_result["camera_motion_suspected"],
+        "moving_scene_max_fraction": moving_result["max_shift_fraction"],
+        "summary_exposes_camera_motion": "camera_motion_suspected" in summary,
+        "deprecated_id_switch_alias_removed": alias_removed,
+        "config_hash_stable": shared is not None,
+        "config_hash_sensitive_to_threshold": differs,
+        "negative_clip_seconds_used": scores["wrong_way"].negative_clip_seconds,
+    }
+
+
 def check_contract() -> Dict[str, Any]:
     """Validate the last emitted mock-contract document.
 
@@ -406,6 +473,7 @@ def main() -> int:
     multi_lane = check_multi_lane()
     tracking_only = check_tracking_only()
     contract = check_contract()
+    static_camera = check_static_camera_and_metrics()
 
     failed: List[str] = []
     if not requirements["lap_pinned_with_exact_version"]:
@@ -471,10 +539,24 @@ def main() -> int:
         failed.append("tracking-only snapshot does not declare the mode")
     if not contract["all_valid"]:
         failed.append("output contract validation failed")
+    if static_camera["still_scene_flagged"]:
+        failed.append("static-camera check flagged a still scene")
+    if not static_camera["moving_scene_flagged"]:
+        failed.append("static-camera check missed a synthetic panning scene")
+    if not static_camera["summary_exposes_camera_motion"]:
+        failed.append("run_summary does not expose the camera_motion flag")
+    if not static_camera["deprecated_id_switch_alias_removed"]:
+        failed.append("deprecated id_switch_indicators alias is still present")
+    if not static_camera["config_hash_stable"]:
+        failed.append("evaluation config hash is not stable across identical snapshots")
+    if not static_camera["config_hash_sensitive_to_threshold"]:
+        failed.append("evaluation config hash does not change when a threshold changes")
+    if static_camera["negative_clip_seconds_used"] != 3600.0:
+        failed.append("false-alarm denominator does not use total negative-clip duration")
 
     report: Dict[str, Any] = {
         "requirement": "FR-20 (pending supervisor sign-off)",
-        "stage": "Tier A, Gate 3 (post-Gate-2 corrections + Gate 3 review corrections)",
+        "stage": "Tier A, Gate 3 (post-Gate-2 corrections + Gate 3 + Gate 4 review corrections)",
         "validated_on_real_footage": False,
         "requirements": requirements,
         "model1_still_runs": model1,
@@ -483,6 +565,7 @@ def main() -> int:
         "multi_lane": multi_lane,
         "tracking_only": tracking_only,
         "contract": contract,
+        "static_camera_and_metrics": static_camera,
         "failed_checks": failed,
         "blockers": [
             "Step 7 (real clip run) is pending a sample clip or RTSP URL.",
@@ -577,6 +660,22 @@ def main() -> int:
     print(f"  snapshot evidence recorded : {contract['evidence_paths_recorded']}")
     for problem in contract["problems"]:
         print(f"    PROBLEM: {problem}")
+    print()
+    print("Static-camera check + Gate 4 corrections:")
+    print(f"  still scene flagged        : {static_camera['still_scene_flagged']}")
+    print(
+        f"  moving scene flagged       : {static_camera['moving_scene_flagged']} "
+        f"(max shift {static_camera['moving_scene_max_fraction']:.4f} of width)"
+    )
+    print(f"  summary exposes the flag   : {static_camera['summary_exposes_camera_motion']}")
+    print(f"  deprecated alias removed   : {static_camera['deprecated_id_switch_alias_removed']}")
+    print(f"  config hash stable         : {static_camera['config_hash_stable']}")
+    print(
+        f"  config hash tracks change  : {static_camera['config_hash_sensitive_to_threshold']}"
+    )
+    print(
+        f"  negative-clip denominator  : {static_camera['negative_clip_seconds_used']:.0f} s"
+    )
     print()
     print("Blockers:")
     for blocker in report["blockers"]:

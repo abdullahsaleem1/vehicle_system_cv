@@ -1,0 +1,37 @@
+{
+  "checked_utc": "2026-10-20T12:21:12Z",
+  "weights_path": "plate_detection/pakistani_finetune/weights/pk_plate_finetune_v2/weights/best.pt",
+  "weights_size_bytes": 6245795,
+  "image_path": "plate_detection/pakistani_finetune/data/images/val/vehicle_0.jpg",
+  "image_sha256": "00c6d56f83d1f8f26650fa0f6e1582f2df3b087b276b5cefcc85a7614f336179",
+  "image_size": [
+    3968,
+    2976
+  ],
+  "class_names": {
+    "0": "License_Plate"
+  },
+  "inference_settings": {
+    "imgsz": 640,
+    "conf": 0.25,
+    "iou": 0.7,
+    "max_det": 300,
+    "device": "cpu",
+    "rect": false,
+    "augment": false,
+    "half": false
+  },
+  "detection_count": 1,
+  "detections": [
+    {
+      "class_id": 0,
+      "confidence": 0.655487,
+      "box": [
+        1247.529,
+        381.377,
+        3202.987,
+        1672.017
+      ]
+    }
+  ]
+}
